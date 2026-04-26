@@ -14,13 +14,17 @@ export interface ServerHandle {
 export async function startMCPServer(preferredPort: number): Promise<ServerHandle> {
   const port = await findFreePort(preferredPort, preferredPort + PORT_SCAN_RANGE);
 
-  const mcp = new McpServer({
-    name: "vscode-notebook-mcp",
-    version: "0.1.0"
-  });
-  registerAllTools(mcp);
-
   const transports = new Map<string, StreamableHTTPServerTransport>();
+  const servers = new Map<string, McpServer>();
+
+  const createMcpServer = (): McpServer => {
+    const mcp = new McpServer({
+      name: "vscode-notebook-mcp",
+      version: "0.1.0"
+    });
+    registerAllTools(mcp);
+    return mcp;
+  };
 
   const httpServer = http.createServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -55,8 +59,13 @@ export async function startMCPServer(preferredPort: number): Promise<ServerHandl
             sessionIdGenerator: () => newSessionId,
             enableJsonResponse: true
           });
+          const mcp = createMcpServer();
           transports.set(newSessionId, transport);
-          transport.onclose = () => transports.delete(newSessionId);
+          servers.set(newSessionId, mcp);
+          transport.onclose = () => {
+            transports.delete(newSessionId);
+            servers.delete(newSessionId);
+          };
           await mcp.connect(transport);
           await transport.handleRequest(req, res);
           return;
@@ -95,6 +104,7 @@ export async function startMCPServer(preferredPort: number): Promise<ServerHandl
           t.close();
         }
         transports.clear();
+        servers.clear();
         httpServer.close(() => resolve());
       })
   };
