@@ -1,0 +1,65 @@
+{
+  "name": "vscode-notebook-mcp",
+  "displayName": "VS Code Notebook MCP",
+  "description": "Expose open Jupyter notebooks in VS Code to MCP-compatible AI agents.",
+  "version": "0.1.0",
+  "publisher": "colmryan",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Notebooks",
+    "Data Science",
+    "AI"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "notebook-mcp.restartServer",
+        "title": "Notebook MCP: Restart Server"
+      },
+      {
+        "command": "notebook-mcp.showInfo",
+        "title": "Notebook MCP: Show Server Info"
+      }
+    ],
+    "configuration": {
+      "title": "Notebook MCP",
+      "properties": {
+        "notebook-mcp.port": {
+          "type": "number",
+          "default": 49777,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "Preferred port. If unavailable, the next free port (up to +99) is chosen automatically."
+        }
+      }
+    }
+  },
+  "extensionDependencies": [
+    "ms-toolsai.jupyter"
+  ],
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "watch": "npm run build -- --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "zod": "^3.23.8"
+  }
+}
