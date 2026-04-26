@@ -4,12 +4,13 @@ A VS Code extension that exposes the Jupyter notebooks in your VSCode editor to 
 
 > Status: pre-alpha, single-developer project. Built fresh; not a fork.
 
-## Tools (12)
+## Tools (13)
 
 ### Discovery
 | Tool | Description |
 |---|---|
 | `notebook_list_open` | List all open notebooks with URI, file name, cell count, and which is active |
+| `notebook_open` | Open a `.ipynb` file (absolute path, `file://` URI, or workspace-relative) so its cells become available |
 | `notebook_list_cells` | List cells with index, kind, language, preview, execution state |
 | `notebook_get_cell_content` | Full source of a cell |
 | `notebook_get_cell_output` | Outputs of a cell (text, errors, images as base64) |
