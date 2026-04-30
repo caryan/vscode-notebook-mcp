@@ -61,11 +61,11 @@ async function stopServer() {
 function updateStatusBar() {
   if (!statusBarItem) return;
   if (serverHandle) {
-    statusBarItem.text = `🪐 :${serverHandle.port}`;
+    statusBarItem.text = `$(notebook) :${serverHandle.port}`;
     statusBarItem.tooltip = `Notebook MCP\nhttp://127.0.0.1:${serverHandle.port}/mcp\n\nClick for info`;
     statusBarItem.backgroundColor = undefined;
   } else {
-    statusBarItem.text = `🪐 ✗`;
+    statusBarItem.text = `$(notebook) ✗`;
     statusBarItem.tooltip = `Notebook MCP: not running\n${lastError ?? ""}\n\nClick for info`;
     statusBarItem.backgroundColor = new vscode.ThemeColor(
       "statusBarItem.errorBackground"
