@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { isPlotlyMime, renderPlotlyToPng, PlotlyFigure } from "./plotly.js";
 
 const CHARACTER_LIMIT = 25_000;
 
@@ -24,13 +25,28 @@ export interface ImageOutput {
 
 export type CellOutput = TextOutput | ErrorOutput | ImageOutput;
 
-export function parseOutputs(
+export async function parseOutputs(
   outputs: readonly vscode.NotebookCellOutput[]
-): CellOutput[] {
+): Promise<CellOutput[]> {
   const decoder = new TextDecoder();
   const results: CellOutput[] = [];
 
   for (const output of outputs) {
+    const plotlyItem = output.items.find((item) => isPlotlyMime(item.mime));
+    if (plotlyItem) {
+      try {
+        const figure = JSON.parse(decoder.decode(plotlyItem.data)) as PlotlyFigure;
+        const png = await renderPlotlyToPng(figure);
+        results.push({ type: "image", data: png, mimeType: "image/png" });
+      } catch (err) {
+        results.push({
+          type: "text",
+          text: `[Plotly render failed: ${err instanceof Error ? err.message : String(err)}]`
+        });
+      }
+      continue;
+    }
+
     for (const item of output.items) {
       if (item.mime === ERROR_MIME) {
         try {

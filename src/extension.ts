@@ -1,11 +1,13 @@
 import * as vscode from "vscode";
 import { startMCPServer, ServerHandle } from "./mcp/server.js";
+import { initPlotlyRenderer } from "./utils/plotly.js";
 
 let serverHandle: ServerHandle | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
 let lastError: string | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
+  initPlotlyRenderer(context);
   statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
     100

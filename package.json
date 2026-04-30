@@ -39,6 +39,25 @@
           "description": "Preferred port. If unavailable, the next free port (up to +99) is chosen automatically."
         }
       }
+    },
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "notebook-mcp-utility",
+          "title": "Notebook MCP",
+          "icon": "$(notebook)"
+        }
+      ]
+    },
+    "views": {
+      "notebook-mcp-utility": [
+        {
+          "type": "webview",
+          "id": "notebook-mcp.plotlyRenderer",
+          "name": "Plotly Renderer",
+          "visibility": "collapsed"
+        }
+      ]
     }
   },
   "extensionDependencies": [
@@ -46,7 +65,8 @@
   ],
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "copy:plotly": "node -e \"require('fs').mkdirSync('dist',{recursive:true});require('fs').copyFileSync('node_modules/plotly.js-dist-min/plotly.min.js','dist/plotly.min.js')\"",
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap && npm run copy:plotly",
     "watch": "npm run build -- --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -60,6 +80,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.6.1",
+    "plotly.js-dist-min": "^3.5.0",
     "zod": "^3.23.8"
   }
 }

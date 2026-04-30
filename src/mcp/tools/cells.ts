@@ -6,7 +6,11 @@ import {
   NotebookUriSchema,
   CellIndexSchema
 } from "../../schemas/index.js";
-import { parseOutputs, formatOutputsAsMarkdown } from "../../utils/output.js";
+import {
+  parseOutputs,
+  formatOutputsAsMarkdown,
+  CellOutput
+} from "../../utils/output.js";
 import {
   resolveNotebook,
   insertCells,
@@ -17,11 +21,25 @@ import {
   waitForCellExecutionByIndex
 } from "../../utils/notebook.js";
 
+type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
 const TextResult = (text: string) =>
   ({ content: [{ type: "text" as const, text }] });
 
 const ErrorResult = (text: string) =>
   ({ content: [{ type: "text" as const, text }], isError: true });
+
+function ResultWithImages(text: string, outputs: CellOutput[]) {
+  const content: ContentBlock[] = [{ type: "text", text }];
+  for (const o of outputs) {
+    if (o.type === "image") {
+      content.push({ type: "image", data: o.data, mimeType: o.mimeType });
+    }
+  }
+  return { content };
+}
 
 function isCellExecuting(cell: vscode.NotebookCell): boolean {
   const timing = cell.executionSummary?.timing;
@@ -164,7 +182,7 @@ export function registerCellTools(server: McpServer): void {
         );
       }
       const cell = notebook.cellAt(index);
-      const outputs = parseOutputs(cell.outputs);
+      const outputs = await parseOutputs(cell.outputs);
       const result = {
         index,
         hasOutput: outputs.length > 0,
@@ -178,13 +196,14 @@ export function registerCellTools(server: McpServer): void {
       if (outputs.length === 0) {
         return TextResult(`# Cell ${index} Output\n\nNo output available.`);
       }
-      return TextResult(
+      return ResultWithImages(
         [
           `# Cell ${index} Output`,
           result.executionOrder ? `Execution #${result.executionOrder}` : "",
           "",
           formatOutputsAsMarkdown(outputs)
-        ].join("\n")
+        ].join("\n"),
+        outputs
       );
     }
   );
@@ -229,7 +248,7 @@ export function registerCellTools(server: McpServer): void {
       let execution: {
         success: boolean;
         executionOrder: number | null;
-        outputs: ReturnType<typeof parseOutputs>;
+        outputs: CellOutput[];
         error?: string;
       } | null = null;
 
@@ -243,7 +262,7 @@ export function registerCellTools(server: McpServer): void {
           execution = {
             success: executed.executionSummary?.success ?? false,
             executionOrder: executed.executionSummary?.executionOrder ?? null,
-            outputs: parseOutputs(executed.outputs)
+            outputs: await parseOutputs(executed.outputs)
           };
         } catch (err) {
           execution = {
@@ -286,7 +305,10 @@ export function registerCellTools(server: McpServer): void {
           }
         }
       }
-      return TextResult(lines.join("\n"));
+      return ResultWithImages(
+        lines.join("\n"),
+        execution?.outputs ?? []
+      );
     }
   );
 
@@ -390,7 +412,7 @@ export function registerCellTools(server: McpServer): void {
         );
       }
 
-      const outputs = parseOutputs(executed.outputs);
+      const outputs = await parseOutputs(executed.outputs);
       const result = {
         success: executed.executionSummary?.success ?? false,
         cellIndex: index,
@@ -409,7 +431,7 @@ export function registerCellTools(server: McpServer): void {
         "## Output",
         formatOutputsAsMarkdown(outputs)
       ];
-      return TextResult(lines.join("\n"));
+      return ResultWithImages(lines.join("\n"), outputs);
     }
   );
 
