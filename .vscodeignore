@@ -1,0 +1,12 @@
+.vscode/**
+.claude/**
+src/**
+manual-test/**
+node_modules/**
+**/*.map
+**/*.ts
+tsconfig.json
+.gitignore
+.mcp.json
+CLAUDE.md
+.github/**
