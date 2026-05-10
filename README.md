@@ -88,7 +88,7 @@ All tools accept an optional `notebook_uri` (omitted → uses the active noteboo
 │  ┌───────────────────────┴───────────────────────────┐  │
 │  │  This extension                                   │  │
 │  │                                                   │  │
-│  │   HTTP server :49777  ──►  MCP tools (12)         │  │
+│  │   HTTP server :49777  ──►  MCP tools (13)         │  │
 │  │   (StreamableHTTPServerTransport)                 │  │
 │  └───────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
