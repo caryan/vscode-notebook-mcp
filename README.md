@@ -119,6 +119,22 @@ npm test            # vitest (no tests yet)
 
 Press **F5** in VS Code to launch the Extension Development Host.
 
+### Dependencies
+
+**Runtime (`dependencies`)**
+
+- **`@modelcontextprotocol/sdk`** — the MCP server itself. We use `McpServer` (one per session, see `src/mcp/server.ts`) and `StreamableHTTPServerTransport` to speak MCP over the embedded HTTP server. Tool registration in `src/mcp/tools/*.ts` is all SDK API.
+- **`plotly.js-dist-min`** — bundled into `dist/plotly.min.js` by the `copy:plotly` script and loaded inside the hidden `notebook-mcp.plotlyRenderer` webview. The webview converts Plotly figure JSON to PNG via `Plotly.newPlot` + `Plotly.toImage`. We can't run Plotly in the extension host (no DOM), and shipping the bundle locally avoids a runtime CDN fetch under the webview's strict CSP. Using `-dist-min` (the prebuilt minified bundle) instead of `plotly.js` keeps the VSIX smaller and avoids pulling in Plotly's full build toolchain.
+- **`zod`** — schema definitions in `src/schemas/index.ts` and per-tool input validation across `cells.ts` / `kernel.ts` / `notebooks.ts`. The MCP SDK accepts zod schemas directly when registering tools, so we get validation + JSON Schema generation for free.
+
+**Dev (`devDependencies`)**
+
+- **`@types/node`** — Node typings for extension-host code (`Buffer`, `process`, `http`, etc.).
+- **`@types/vscode`** — VS Code Extension API typings. Pinned to `^1.85.0` to match `engines.vscode`.
+- **`esbuild`** — bundler used by `npm run build` to produce the single `dist/extension.js` that VS Code loads. Chosen over `tsc` for build speed and tree-shaking; `--external:vscode` keeps the host-provided module out of the bundle.
+- **`typescript`** — provides `tsc` for the `typecheck` script (`tsc --noEmit`). Type checking only; esbuild does the actual transpilation.
+- **`vitest`** — wired up as `npm test`. No tests yet, but the harness is ready so future tests don't need a separate setup step.
+
 ### Building a VSIX
 
 To produce an installable `.vsix` file:
