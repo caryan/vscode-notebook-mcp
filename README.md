@@ -119,6 +119,22 @@ npm test            # vitest (no tests yet)
 
 Press **F5** in VS Code to launch the Extension Development Host.
 
+### Building a VSIX
+
+To produce an installable `.vsix` file:
+
+```bash
+npx @vscode/vsce package
+```
+
+This runs `vscode:prepublish` (which builds via esbuild) and writes `vscode-notebook-mcp-<version>.vsix` to the repo root. Install it with:
+
+```bash
+code --install-extension vscode-notebook-mcp-<version>.vsix
+```
+
+`.vscodeignore` keeps the package small by excluding TS sources, `node_modules`, source maps, and dev configs — only the bundled `dist/`, `package.json`, `README.md`, and `LICENSE` are shipped.
+
 ## References
 
 Other projects along similar lines to this project:
@@ -126,7 +142,7 @@ Other projects along similar lines to this project:
 - [datalayer/jupyter-mcp-server](https://github.com/datalayer/jupyter-mcp-server) — MCP server that talks to a running Jupyter server via HTTP/WebSocket.
 - [olavocarvalho/vscode-runtime-notebook-mcp](https://github.com/olavocarvalho/vscode-runtime-notebook-mcp) — similar architecture as this project (VS Code Notebook API + embedded HTTP MCP server).
 
-I built this fresh to learn and so I have room to tweak the design and develop new features.
+I built this fresh to learn and so I have room to tweak the design and develop new features such as reading Plotly images. 
 
 ## License
 
