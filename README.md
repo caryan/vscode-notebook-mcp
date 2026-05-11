@@ -33,7 +33,7 @@ A VS Code extension that exposes the Jupyter notebooks in your VSCode editor to 
 | Tool | Description |
 |---|---|
 | `notebook_get_kernel_info` | Language, status, notebook URI |
-| `notebook_select_kernel` | Programmatic by `kernel_id`, or open the kernel picker if omitted |
+| `notebook_select_kernel` | Pop the picker, or attach a specific controller by `kernel_id` (see [Kernel selection](#kernel-selection)) |
 
 All tools accept an optional `notebook_uri` (omitted → uses the active notebook editor) and `response_format` (`"markdown"` or `"json"`).
 
@@ -107,6 +107,28 @@ All tools accept an optional `notebook_uri` (omitted → uses the active noteboo
 - **Inserted cells** are tagged with a metadata id so the executor can find them again after the index shifts due to other concurrent edits.
 - **Multi-notebook**: every tool accepts `notebook_uri`. Resolution: explicit URI → look up in `vscode.workspace.notebookDocuments` (or open it); otherwise fall back to `vscode.window.activeNotebookEditor`.
 
+## Kernel selection
+
+`notebook_select_kernel` today is mostly a passthrough to VS Code's `notebook.selectKernel` command. Without a `kernel_id` it pops the kernel picker UI — fine when there's a human at the editor, useless to a headless agent. With a `kernel_id` it tries to attach the controller with that exact id.
+
+The friction: **the Jupyter extension exposes no public API to enumerate or assign controllers, and controller ids for interpreter-backed Python kernels are derived strings the Jupyter extension computes internally**. There is also no standard "kernel id" an agent can be expected to know in advance — the format depends on the kernel source (kernelspec vs. interpreter) and includes a hash of the interpreter path. Empirically (verified by reading VS Code's "wanted kernel … all: …" log line) the format for an interpreter-backed kernel is:
+
+```
+.jvsc74a57bd0<sha256(normalizedInterpreterPath)>.<normPath>.<normPath>.-m#ipykernel_launcher
+```
+
+Where `normalizedInterpreterPath` strips just the `bin/` segment of a venv path while keeping the `python` filename — so `/x/y/.venv/bin/python` becomes `/x/y/.venv/python` (system paths like `/usr/bin/python3` are left untouched). See `getKernelId` and `getInterpreterKernelSpecName` in [microsoft/vscode-jupyter](https://github.com/microsoft/vscode-jupyter/blob/main/src/kernels/helpers.ts).
+
+**What the integration test suite does today.** The test helper `selectVenvKernel` at `test/integration/suite/helpers.ts` (a) tells the Python extension to mark the venv as the active interpreter so the Jupyter extension creates a controller for it, then (b) constructs the controller id from the normalized path, then (c) dispatches `notebook.selectKernel`. Brittle to upstream changes in the Jupyter extension, but it works and is documented in code. If a future Jupyter version changes the format, the failure mode is informative — VS Code logs both the requested id and the available ones (`wanted kernel DOES NOT EXIST, wanted: <id>, all: <ids>`) so the new format can be reverse-engineered the same way.
+
+**Where this is heading.** The intent is to make this an MCP tool — something like `notebook_attach_python_kernel({ python_path })` — so an agent can say "use this venv" without having to know any controller id. Implementation plan: take an interpreter path, normalize it, probe the version, compute the controller id, dispatch `notebook.selectKernel`, and confirm via `kernels.getKernel(uri)`. Same logic as the test helper, exposed as a tool. Open questions before that lands:
+
+- Should it accept other forms of "kernel" too (a global kernelspec name, a remote Jupyter server URL)?
+- How should it report failure (controller not registered yet, version mismatch, picker fallback)?
+- What happens when the upstream id format changes — fall back to popping the picker, or surface a clear error?
+
+If you want to push this along, the helper code in `test/integration/suite/helpers.ts` is a good starting point.
+
 ## Development
 
 ```bash
@@ -114,10 +136,28 @@ npm install
 npm run build       # esbuild bundle
 npm run watch       # rebuild on change
 npm run typecheck   # tsc --noEmit
-npm test            # vitest (no tests yet)
+npm test            # @vscode/test-electron + Mocha integration tests
 ```
 
 Press **F5** in VS Code to launch the Extension Development Host.
+
+### Running the tests
+
+`npm test` runs the integration suite under `@vscode/test-electron`. It downloads a fresh **VS Code Insiders** build, installs `ms-python.python` and `ms-toolsai.jupyter` into it, opens the test workspace at `test/fixtures/workspace/`, and runs Mocha specs that drive the MCP tools through an in-memory transport (no HTTP). Test files live in `test/integration/suite/`.
+
+> Why Insiders: macOS refuses to launch a second extension-host of the same bundle id, so running tests against stable VS Code fails when you already have stable VS Code open ("currently only supported if no other instance of Code is running"). Insiders and stable have distinct bundle ids and coexist. Override with `VSCODE_TEST_CHANNEL=stable` if you don't have stable open.
+
+Prerequisites:
+
+- [`uv`](https://docs.astral.sh/uv/) on PATH — used to manage the Python venv at `test/fixtures/python/.venv` that supplies the test kernel (ipykernel + matplotlib + numpy + plotly). Pinned to Python 3.13 via `.python-version`.
+
+The `pretest` hook builds the extension (`npm run build`), compiles the tests (`npm run build:test` → `out/`), and runs `scripts/setup-test-python.sh` which is idempotent (`uv sync` only).
+
+Notes on what the tests cover:
+
+- **Non-execution tools** (`notebooks.test.ts`, `cells.test.ts`) — list/open/get/insert/edit/delete/clear, error paths, active-editor fallback. Run without a Python kernel.
+- **Execution + kernel** (`execution.test.ts`, `kernel.test.ts`) — depend on `selectVenvKernel` attaching the venv's interpreter; see [Kernel selection](#kernel-selection).
+- **Plotly** (`plotly.test.ts`) — verifies a Plotly figure flows through the hidden webview renderer to a PNG image content block.
 
 ### Dependencies
 
@@ -132,8 +172,10 @@ Press **F5** in VS Code to launch the Extension Development Host.
 - **`@types/node`** — Node typings for extension-host code (`Buffer`, `process`, `http`, etc.).
 - **`@types/vscode`** — VS Code Extension API typings. Pinned to `^1.85.0` to match `engines.vscode`.
 - **`esbuild`** — bundler used by `npm run build` to produce the single `dist/extension.js` that VS Code loads. Chosen over `tsc` for build speed and tree-shaking; `--external:vscode` keeps the host-provided module out of the bundle.
-- **`typescript`** — provides `tsc` for the `typecheck` script (`tsc --noEmit`). Type checking only; esbuild does the actual transpilation.
-- **`vitest`** — wired up as `npm test`. No tests yet, but the harness is ready so future tests don't need a separate setup step.
+- **`typescript`** — provides `tsc` for the `typecheck` script (`tsc --noEmit`) and the `build:test` script (`tsc -p tsconfig.test.json` → `out/`). Esbuild handles the production bundle; tsc handles the test build because Mocha loads test files directly.
+- **`mocha` + `@types/mocha`** — test runner, the convention with `@vscode/test-electron`. The bootstrapper at `test/integration/suite/index.ts` discovers `*.test.js` files under `out/test/integration/suite/` and feeds them to Mocha.
+- **`@vscode/test-electron`** — downloads a stable VS Code into `.vscode-test/`, installs `ms-toolsai.jupyter` into it, and launches it with the extension under development plus the test workspace fixture. See `test/integration/runTest.ts`.
+- **`glob` + `@types/glob`** — used by the Mocha bootstrapper to discover compiled test files.
 
 ### Building a VSIX
 

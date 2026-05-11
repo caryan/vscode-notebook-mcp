@@ -1,0 +1,10 @@
+{
+  "notebook-mcp.port": 49778,
+  "telemetry.telemetryLevel": "off",
+  "workbench.startupEditor": "none",
+  "extensions.autoCheckUpdates": false,
+  "extensions.autoUpdate": false,
+  "update.mode": "none",
+  "git.openRepositoryInParentFolders": "never",
+  "git.enabled": false
+}

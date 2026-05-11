@@ -13,12 +13,15 @@ npm install
 npm run build       # esbuild bundle → dist/extension.js
 npm run watch       # rebuild on change
 npm run typecheck   # tsc --noEmit
-npm test            # vitest run (no tests yet)
+npm test            # @vscode/test-electron + Mocha integration suite
 ```
 
 To run the extension: open this folder in VS Code and press **F5** to launch an Extension Development Host. The dev host runs the launch config in `.vscode/launch.json` (which has `npm: build` as a preLaunchTask).
 
-There is no test suite yet (`npm test` runs vitest with zero tests). Manual testing uses `manual-test/test.ipynb` opened inside the dev host.
+`npm test` requires `uv` on PATH — `pretest` runs `scripts/setup-test-python.sh` which `uv sync`s the venv at `test/fixtures/python/.venv` (pinned to Python 3.13 via `.python-version`). Tests live in `test/integration/suite/` and are compiled by `tsc -p tsconfig.test.json` to `out/`. The runner downloads a fresh stable VS Code into `.vscode-test/`, installs `ms-toolsai.jupyter` into it, opens the workspace at `test/fixtures/workspace/`, and drives the MCP tools through an in-memory transport (no HTTP). Manual testing still uses `manual-test/test.ipynb` opened in the dev host.
+
+### Kernel selection in tests
+The Jupyter extension exposes no public API to assign a kernel to a notebook. The helper `selectVenvKernel` in `test/integration/suite/helpers.ts` reproduces the controller-id format Jupyter uses internally (`.python<verNoDots>jvsc74a57bd0<sha256(normalizedInterpreterPath)>.<normPath>.<normPath>.m#ipykernel_launcher`) and dispatches `notebook.selectKernel`. This mirrors `getKernelId` / `getInterpreterKernelSpecName` in microsoft/vscode-jupyter; if Jupyter changes that scheme the helper breaks. Roadmap (see README "Kernel selection"): expose this same logic as an MCP tool so agents can attach a Python kernel by interpreter path without popping the picker.
 
 ## Architecture
 

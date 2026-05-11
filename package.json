@@ -73,14 +73,21 @@
     "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap && npm run copy:plotly",
     "watch": "npm run build -- --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "build:test": "tsc -p tsconfig.test.json",
+    "test:setup-python": "bash scripts/setup-test-python.sh",
+    "pretest": "npm run build && npm run build:test && npm run test:setup-python",
+    "test": "node out/test/integration/runTest.js"
   },
   "devDependencies": {
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.6",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.4.1",
     "esbuild": "^0.20.0",
-    "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "glob": "^10.4.5",
+    "mocha": "^10.7.0",
+    "typescript": "^5.4.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.6.1",
