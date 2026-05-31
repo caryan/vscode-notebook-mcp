@@ -83,8 +83,9 @@ Drive through these in order. Each row exercises a non-trivial path of one tool.
 | 17 | `notebook_clear_cell_output` | clear one cell's output |
 | 18 | `notebook_clear_all_outputs` | clear the rest |
 | 19 | `notebook_delete_cell` | delete the original placeholder |
+| 20 | `notebook_restart_kernel` | restart the kernel → `connected: true` with fresh state (variables/imports wiped) |
 
-Finish by re-running every code cell in index order so the saved notebook has fresh outputs end to end, then save it in VS Code (Cmd+S) if it isn't auto-saved. Inspecting the resulting `test.ipynb` (committed or not) is the eyeball check that the bundle, the webview, and the kernel wiring all still work.
+Finish by re-running every code cell in index order so the saved notebook has fresh outputs end to end — doubly meaningful right after row 20, since the re-run has to re-import everything against the freshly restarted kernel. Then save it in VS Code (Cmd+S) if it isn't auto-saved. Inspecting the resulting `test.ipynb` (committed or not) is the eyeball check that the bundle, the webview, and the kernel wiring all still work.
 
 ## Architecture
 
@@ -102,7 +103,7 @@ This per-session construction is deliberate (commit `6c02e9a`) — sharing one `
 All tools are registered through `registerAllTools(server)` in `src/mcp/tools/index.ts`, which fans out to:
 - `notebooks.ts` — `notebook_list_open`, `notebook_open`
 - `cells.ts` — list / get / insert / edit / delete / run / clear-output tools
-- `kernel.ts` — `notebook_get_kernel_info`, `notebook_select_kernel`
+- `kernel.ts` — `notebook_get_kernel_info`, `notebook_select_kernel`, `notebook_restart_kernel`
 
 Every tool accepts an optional `notebook_uri` (omit → active notebook editor) and `response_format: "markdown" | "json"` (default `"markdown"`). Schemas live in `src/schemas/index.ts` (zod). Keep adding tools by following these conventions:
 - Use `NotebookUriSchema`, `CellIndexSchema`, `ResponseFormatSchema` from `schemas/index.ts`.

@@ -34,7 +34,83 @@ async function getJupyterApi(): Promise<any> {
   return jupyterApi;
 }
 
+/**
+ * Wait for an in-flight kernel restart to finish.
+ *
+ * `jupyter.restartkernel` kicks the restart off fire-and-forget — its handler
+ * (`restartKernelImpl` in vscode-jupyter) calls `wrapKernelMethod("restart")`
+ * without awaiting it, so `executeCommand` resolves while the old kernel is
+ * still alive. Returning then would let the caller's next execution race the
+ * not-yet-restarted session and see stale state. We watch the kernel's public
+ * status instead: a restart drives it out of "idle" (restarting/starting/busy)
+ * and back to "idle"; "dead" means the restart failed. Subscribe BEFORE issuing
+ * the command so no transition is missed (status changes are events, not polled).
+ *
+ * Two bounds keep this from hanging: if the restart never *starts* within
+ * `startGraceMs` we stop waiting (the environment may not surface the transition
+ * — e.g. the headless test host doesn't honor the command at all — or the
+ * restart finished too fast to observe); once it has started we allow up to
+ * `totalTimeoutMs` for it to settle back to idle.
+ */
+function waitForKernelRestart(
+  kernel: any,
+  startGraceMs = 5_000,
+  totalTimeoutMs = 60_000
+): Promise<string> {
+  return new Promise<string>((resolve) => {
+    if (typeof kernel?.onDidChangeStatus !== "function") {
+      resolve(kernel?.status ?? "unknown");
+      return;
+    }
+    let started = false;
+    let settled = false;
+    const finish = (status: string) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(graceTimer);
+      clearTimeout(totalTimer);
+      try {
+        sub?.dispose?.();
+      } catch {
+        // disposing the listener is best-effort
+      }
+      resolve(status);
+    };
+    const onStatus = () => {
+      const s = kernel?.status;
+      if (
+        s === "restarting" ||
+        s === "autorestarting" ||
+        s === "starting" ||
+        s === "busy"
+      ) {
+        // The restart is underway — stop the start grace and wait for idle.
+        started = true;
+        clearTimeout(graceTimer);
+      } else if (s === "dead") {
+        finish(s);
+      } else if (s === "idle" && started) {
+        finish(s);
+      }
+    };
+    const sub = kernel.onDidChangeStatus(onStatus);
+    const graceTimer = setTimeout(
+      () => finish(kernel?.status ?? "unknown"),
+      startGraceMs
+    );
+    const totalTimer = setTimeout(
+      () => finish(kernel?.status ?? "unknown"),
+      totalTimeoutMs
+    );
+  });
+}
+
 const KernelInfoInput = {
+  notebook_uri: NotebookUriSchema,
+  response_format: ResponseFormatSchema
+};
+
+const RestartKernelInput = {
   notebook_uri: NotebookUriSchema,
   response_format: ResponseFormatSchema
 };
@@ -193,6 +269,80 @@ export function registerKernelTools(server: McpServer): void {
           : `No kernel currently reported as connected (the picker may still be open).`
       );
       return TextResult(lines.join("\n"));
+    }
+  );
+
+  server.tool(
+    "notebook_restart_kernel",
+    "Restart the active notebook's kernel, clearing all in-memory state (variables, imports) while leaving cell outputs untouched. The kernel must already be connected — use notebook_select_kernel first if not.",
+    RestartKernelInput,
+    async ({ notebook_uri, response_format }) => {
+      const access = await resolveNotebook(notebook_uri);
+      if (!access.allowed) return ErrorResult(`Error: ${access.error}`);
+      const notebook = access.notebook!;
+
+      let kernel: any;
+      try {
+        const api = await getJupyterApi();
+        kernel = await api?.kernels?.getKernel?.(notebook.uri);
+      } catch (err) {
+        return ErrorResult(
+          `Error: cannot reach Jupyter extension. ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+
+      if (!kernel) {
+        return ErrorResult(
+          `Error: no kernel connected for ${notebook.uri.toString()}. Use notebook_select_kernel to attach one before restarting.`
+        );
+      }
+
+      let finalStatus: string;
+      try {
+        // Subscribe to the kernel's status BEFORE issuing the command so the
+        // restart transitions aren't missed, then block until the restart
+        // actually completes (the command itself returns early — see
+        // waitForKernelRestart).
+        const restartDone = waitForKernelRestart(kernel);
+        await vscode.commands.executeCommand("jupyter.restartkernel", {
+          notebookEditor: { notebookUri: notebook.uri }
+        });
+        finalStatus = await restartDone;
+      } catch (err) {
+        return ErrorResult(
+          `Error: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+
+      let confirmed: any;
+      try {
+        const api = await getJupyterApi();
+        confirmed = await api?.kernels?.getKernel?.(notebook.uri);
+      } catch {
+        // best-effort confirmation only
+      }
+
+      const result = {
+        notebookUri: notebook.uri.toString(),
+        restarted: true,
+        connected: !!confirmed,
+        language: confirmed?.language ?? null,
+        status: confirmed?.status ?? finalStatus ?? null
+      };
+
+      if (response_format === "json") {
+        return TextResult(JSON.stringify(result, null, 2));
+      }
+      return TextResult(
+        [
+          `# Kernel Restart`,
+          ``,
+          `Restarted the kernel for ${result.notebookUri}.`,
+          result.connected
+            ? `Currently connected: ${result.language} (${result.status})`
+            : `No kernel currently reported as connected.`
+        ].join("\n")
+      );
     }
   );
 }
