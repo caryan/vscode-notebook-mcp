@@ -2,7 +2,7 @@
   "name": "vscode-notebook-mcp",
   "displayName": "VS Code Notebook MCP",
   "description": "Expose open Jupyter notebooks in VS Code to MCP-compatible AI agents.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "colmryan",
   "license": "MIT",
   "repository": {

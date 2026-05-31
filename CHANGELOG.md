@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-05-31
+
+### Added
+
+- `notebook_select_kernel` accepts a `python_path` (an interpreter path, e.g. a venv's `bin/python`): attach a kernel without knowing a controller id or having pre-selected the interpreter in VS Code. The tool registers the interpreter with the Python extension, computes the controller id for you, and retries selection until the controller is live.
+
+### Internal
+
+- Integration test suite (`@vscode/test-electron` + Mocha) driving the MCP tools through an in-memory transport; `npm test` provisions uv-managed kernel venvs.
+- Removed application-scoped keys from the test workspace settings that triggered a VS Code "can only be written into User settings" warning.
+- Docs: manual end-to-end tool-exercise SOP, and a rationale for each carried dependency.
+
 ## [0.1.0] - 2026-05-10
 
 Initial release.
@@ -26,4 +38,5 @@ Initial release.
 - Commands: `Notebook MCP: Restart Server`, `Notebook MCP: Show Server Info`.
 - Packaging support via `@vscode/vsce`: `.vscodeignore` keeps the VSIX small (only `dist/`, `package.json`, `README.md`, and `LICENSE` ship); `repository` field set in `package.json`.
 
+[0.2.0]: https://github.com/caryan/vscode-notebook-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/caryan/vscode-notebook-mcp/releases/tag/v0.1.0
