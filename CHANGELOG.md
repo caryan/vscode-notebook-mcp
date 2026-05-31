@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-05-31
+
+### Added
+
+- `notebook_restart_kernel` — restart a notebook's kernel, clearing all in-memory state (variables, imports) while leaving cell outputs intact. The underlying Jupyter command returns before the kernel has actually restarted, so the tool watches the kernel's status and waits for it to settle back to idle (bounded by a start-grace and total timeout) before returning, so a follow-up execution doesn't race a half-restarted session.
+
+### Internal
+
+- Integration coverage for `notebook_restart_kernel` (happy-path wiring + the no-kernel-connected guard). The headless `@vscode/test-electron` host does not honor the Jupyter restart command against the live kernel, so true state-wipe is verified by the manual SOP (CLAUDE.md row 20), confirmed end-to-end in the dev host: the execution count resets and a reference to a pre-restart variable raises `NameError`.
+
 ## [0.2.0] - 2026-05-31
 
 ### Added
@@ -38,5 +48,6 @@ Initial release.
 - Commands: `Notebook MCP: Restart Server`, `Notebook MCP: Show Server Info`.
 - Packaging support via `@vscode/vsce`: `.vscodeignore` keeps the VSIX small (only `dist/`, `package.json`, `README.md`, and `LICENSE` ship); `repository` field set in `package.json`.
 
+[0.3.0]: https://github.com/caryan/vscode-notebook-mcp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/caryan/vscode-notebook-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/caryan/vscode-notebook-mcp/releases/tag/v0.1.0
