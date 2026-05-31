@@ -6,3 +6,5 @@ out/
 .DS_Store
 .claude/
 test/fixtures/python/.venv/
+end-to-end-test/.venv/
+end-to-end-test/test.ipynb

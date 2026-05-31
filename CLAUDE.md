@@ -18,10 +18,86 @@ npm test            # @vscode/test-electron + Mocha integration suite
 
 To run the extension: open this folder in VS Code and press **F5** to launch an Extension Development Host. The dev host runs the launch config in `.vscode/launch.json` (which has `npm: build` as a preLaunchTask).
 
-`npm test` requires `uv` on PATH — `pretest` runs `scripts/setup-test-python.sh` which `uv sync`s the venv at `test/fixtures/python/.venv` (pinned to Python 3.13 via `.python-version`). Tests live in `test/integration/suite/` and are compiled by `tsc -p tsconfig.test.json` to `out/`. The runner downloads a fresh stable VS Code into `.vscode-test/`, installs `ms-toolsai.jupyter` into it, opens the workspace at `test/fixtures/workspace/`, and drives the MCP tools through an in-memory transport (no HTTP). Manual testing still uses `manual-test/test.ipynb` opened in the dev host.
+`npm test` requires `uv` on PATH — `pretest` runs `scripts/setup-test-python.sh` which `uv sync`s the venv at `test/fixtures/python/.venv` (pinned to Python 3.13 via `.python-version`). Tests live in `test/integration/suite/` and are compiled by `tsc -p tsconfig.test.json` to `out/`. The runner downloads a fresh stable VS Code into `.vscode-test/`, installs `ms-toolsai.jupyter` into it, opens the workspace at `test/fixtures/workspace/`, and drives the MCP tools through an in-memory transport (no HTTP). Manual testing still uses `end-to-end-test/test.ipynb` opened in the dev host.
 
 ### Kernel selection in tests
 The Jupyter extension exposes no public API to assign a kernel to a notebook. The helper `selectVenvKernel` in `test/integration/suite/helpers.ts` reproduces the controller-id format Jupyter uses internally (`.python<verNoDots>jvsc74a57bd0<sha256(normalizedInterpreterPath)>.<normPath>.<normPath>.m#ipykernel_launcher`) and dispatches `notebook.selectKernel`. This mirrors `getKernelId` / `getInterpreterKernelSpecName` in microsoft/vscode-jupyter; if Jupyter changes that scheme the helper breaks. Roadmap (see README "Kernel selection"): expose this same logic as an MCP tool so agents can attach a Python kernel by interpreter path without popping the picker.
+
+## Manual end-to-end tool exercise (SOP)
+
+Use this when you want to smoke-test every MCP tool against the live extension. The integration suite (`npm test`) covers correctness through an in-memory transport; this SOP covers the wiring end-to-end (HTTP transport, real Jupyter extension, real kernel, Plotly webview). Run it from inside a Claude Code session connected to the running extension's MCP server.
+
+### One-time venv setup (uv)
+
+```bash
+cd end-to-end-test
+uv venv --python 3.13 .venv
+uv pip install --python .venv/bin/python ipykernel nbformat matplotlib numpy pandas plotly
+```
+
+`ipykernel` is the only hard requirement — without it Jupyter can't start a kernel. `nbformat` keeps Plotly's `_ipython_display_` from raising `ValueError: Mime type rendering requires nbformat>=4.2.0` alongside the rendered figure (the webview branch still renders without it, but the cell ends up with a noisy ErrorOutput). The visualization libs cover the image / Plotly / DataFrame output branches; skipping any of them just makes the corresponding cell raise `ModuleNotFoundError` (which is still a valid exercise of the error path, just not of the image path).
+
+### Reset the notebook
+
+```bash
+rm -f end-to-end-test/test.ipynb
+python3 -c 'import json,pathlib; pathlib.Path("end-to-end-test/test.ipynb").write_text(json.dumps({"cells":[{"cell_type":"code","metadata":{},"source":[],"outputs":[],"execution_count":None}],"metadata":{"kernelspec":{"name":"python3","display_name":"Python 3"}},"nbformat":4,"nbformat_minor":5}))'
+```
+
+That yields a minimal nbformat 4.5 notebook with a single empty code cell — the placeholder that row 19 eventually deletes.
+
+### Attaching a kernel — picker workaround
+
+`notebook_select_kernel` without `kernel_id` currently errors with `Cannot read properties of undefined (reading 'uri')` when the notebook isn't a focused editor. The stub `notebookEditor` payload we pass at `src/mcp/tools/kernel.ts:119` is rejected by VS Code's picker handler (the picker path dereferences something on the real `NotebookEditor` that our stub lacks); the `kernel_id` branch at line 113 takes a code path that doesn't trip the deref. Workaround: compute the controller id from the venv interpreter path using the same scheme as `controllerIdForInterpreter` in `test/integration/suite/helpers.ts:212`, then pass it as `kernel_id`:
+
+```python
+import hashlib
+# For venv paths (>4 segments, ".../bin/python..."), the "/bin" segment is
+# stripped — see normalizeInterpreterPath in helpers.ts. System interpreters
+# like /usr/bin/python3 are left untouched, so use them as-is.
+norm = '/abs/path/to/.venv/python'
+sha  = hashlib.sha256(norm.encode()).hexdigest()
+# Note: ".-m#ipykernel_launcher" (with a literal "-"), not ".m#...". The
+# paragraph above on "Kernel selection in tests" elides this; the code is
+# authoritative.
+print(f'.jvsc74a57bd0{sha}.{norm}.{norm}.-m#ipykernel_launcher')
+```
+
+The controller is bound eagerly but the kernel session is lazy — `notebook_get_kernel_info` reports "not connected" until a cell actually executes. Issue an `notebook_insert_cell` with `execute: true` first to force the attach.
+
+On a *freshly created* venv the Python extension hasn't discovered the interpreter yet, so no Jupyter controller is registered for it and `notebook_select_kernel` with the computed `kernel_id` silently no-ops (the response still says "Attempted to select…"). One-time fix: in the dev host, run **Python: Select Interpreter → Enter interpreter path…** and paste the venv's `bin/python`. Subsequent SOP runs reuse the discovered env. The integration tests sidestep this by calling `api.environments.updateActiveEnvironmentPath` directly (see `registerVenvWithPythonExt` in `test/integration/suite/helpers.ts`); the MCP surface doesn't expose that path yet.
+
+### Tool coverage checklist
+
+Drive through these in order. Each row exercises a non-trivial path of one tool. Rows 12a–15a explicitly insert the cells that rows 12–15 run, because the reset step leaves only the placeholder; without those inserts the run rows fail with "cell index out of range".
+
+| # | Tool | Call |
+|---|---|---|
+| 1 | `notebook_open` | open the fresh `test.ipynb` |
+| 2 | `notebook_list_open` | confirm it's active |
+| 3 | `notebook_get_kernel_info` | expect `connected: false` |
+| 4 | `notebook_select_kernel` | pass the computed `kernel_id` |
+| 5 | `notebook_list_cells` | sanity check initial state |
+| 6 | `notebook_insert_cell` (markdown, indexed) | insert title at index 0 |
+| 7 | `notebook_insert_cell` (code, append) | e.g. `2 + 2` |
+| 8 | `notebook_insert_cell` (code, `execute: true`) | forces kernel attach + exercises id-based wait |
+| 9 | `notebook_get_kernel_info` | now reports `connected: true` — verifies the lazy attach worked |
+| 10 | `notebook_edit_cell` | replace one cell's content |
+| 11 | `notebook_get_cell_content` | verify the edit |
+| 12a | `notebook_insert_cell` (code, append) | matplotlib source: `import matplotlib.pyplot as plt; plt.plot([1,2,3]); plt.show()` |
+| 12 | `notebook_run_cell` | run the matplotlib cell → `image/png` branch |
+| 13a | `notebook_insert_cell` (code, append) | Plotly source: `import plotly.express as px; px.line(y=[1,2,3])` |
+| 13 | `notebook_run_cell` | run the Plotly cell → `notebook-mcp.plotlyRenderer` webview branch |
+| 14a | `notebook_insert_cell` (code, append) | pandas source: `import pandas as pd; pd.DataFrame({"a":[1,2]})` |
+| 14 | `notebook_run_cell` | run the DataFrame cell → html + text fallback branch |
+| 15a | `notebook_insert_cell` (code, append) | error source: `raise ValueError("boom")` |
+| 15 | `notebook_run_cell` | run the error cell → `ErrorOutput` branch |
+| 16 | `notebook_get_cell_output` | re-fetch one of the rows-12–15 outputs *without* re-executing — exercises the standalone output-read path (cell-cached output, no run), once with `response_format: "markdown"` and once with `"json"` |
+| 17 | `notebook_clear_cell_output` | clear one cell's output |
+| 18 | `notebook_clear_all_outputs` | clear the rest |
+| 19 | `notebook_delete_cell` | delete the original placeholder |
+
+Finish by re-running every code cell in index order so the saved notebook has fresh outputs end to end, then save it in VS Code (Cmd+S) if it isn't auto-saved. Inspecting the resulting `test.ipynb` (committed or not) is the eyeball check that the bundle, the webview, and the kernel wiring all still work.
 
 ## Architecture
 
