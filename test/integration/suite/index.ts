@@ -10,6 +10,12 @@ export async function run(): Promise<void> {
     slow: 5_000
   });
 
+  // Allow targeting a subset of tests during development, e.g.
+  //   MOCHA_GREP="kernel id" npm test
+  if (process.env.MOCHA_GREP) {
+    mocha.grep(process.env.MOCHA_GREP);
+  }
+
   const testsRoot = __dirname;
   const files = await glob("**/*.test.js", { cwd: testsRoot });
   for (const f of files) {

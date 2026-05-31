@@ -48,20 +48,7 @@ That yields a minimal nbformat 4.5 notebook with a single empty code cell — th
 
 ### Attaching a kernel — picker workaround
 
-`notebook_select_kernel` without `kernel_id` currently errors with `Cannot read properties of undefined (reading 'uri')` when the notebook isn't a focused editor. The stub `notebookEditor` payload we pass at `src/mcp/tools/kernel.ts:119` is rejected by VS Code's picker handler (the picker path dereferences something on the real `NotebookEditor` that our stub lacks); the `kernel_id` branch at line 113 takes a code path that doesn't trip the deref. Workaround: compute the controller id from the venv interpreter path using the same scheme as `controllerIdForInterpreter` in `test/integration/suite/helpers.ts:212`, then pass it as `kernel_id`:
-
-```python
-import hashlib
-# For venv paths (>4 segments, ".../bin/python..."), the "/bin" segment is
-# stripped — see normalizeInterpreterPath in helpers.ts. System interpreters
-# like /usr/bin/python3 are left untouched, so use them as-is.
-norm = '/abs/path/to/.venv/python'
-sha  = hashlib.sha256(norm.encode()).hexdigest()
-# Note: ".-m#ipykernel_launcher" (with a literal "-"), not ".m#...". The
-# paragraph above on "Kernel selection in tests" elides this; the code is
-# authoritative.
-print(f'.jvsc74a57bd0{sha}.{norm}.{norm}.-m#ipykernel_launcher')
-```
+`notebook_select_kernel` without `kernel_id`/`python_path` currently errors with `Cannot read properties of undefined (reading 'uri')` when the notebook isn't a focused editor. The stub `notebookEditor` payload we pass at `src/mcp/tools/kernel.ts` is rejected by VS Code's picker handler (the picker path dereferences something on the real `NotebookEditor` that our stub lacks); the programmatic branch takes a code path that doesn't trip the deref. So drive selection programmatically: **pass `python_path`** (the absolute path to the env's `bin/python`) and the tool computes the controller id for you — no hashing required. (The `kernel_id` parameter is still accepted for the rare case you already have a controller id.)
 
 The controller is bound eagerly but the kernel session is lazy — `notebook_get_kernel_info` reports "not connected" until a cell actually executes. Issue an `notebook_insert_cell` with `execute: true` first to force the attach.
 
@@ -76,7 +63,7 @@ Drive through these in order. Each row exercises a non-trivial path of one tool.
 | 1 | `notebook_open` | open the fresh `test.ipynb` |
 | 2 | `notebook_list_open` | confirm it's active |
 | 3 | `notebook_get_kernel_info` | expect `connected: false` |
-| 4 | `notebook_select_kernel` | pass the computed `kernel_id` |
+| 4 | `notebook_select_kernel` | pass the env's `python_path` |
 | 5 | `notebook_list_cells` | sanity check initial state |
 | 6 | `notebook_insert_cell` (markdown, indexed) | insert title at index 0 |
 | 7 | `notebook_insert_cell` (code, append) | e.g. `2 + 2` |

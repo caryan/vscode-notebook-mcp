@@ -6,6 +6,7 @@ import {
   NotebookUriSchema
 } from "../../schemas/index.js";
 import { resolveNotebook } from "../../utils/notebook.js";
+import { controllerIdForInterpreter } from "../../utils/kernel.js";
 
 const TextResult = (text: string) =>
   ({ content: [{ type: "text" as const, text }] });
@@ -39,7 +40,13 @@ const SelectKernelInput = {
     .string()
     .optional()
     .describe(
-      "Kernel controller id (e.g. 'python3' or a Jupyter kernelspec id). If omitted, opens the kernel picker UI."
+      "Kernel controller id (e.g. 'python3' or a Jupyter kernelspec id). Takes precedence over python_path. If both are omitted, opens the kernel picker UI."
+    ),
+  python_path: z
+    .string()
+    .optional()
+    .describe(
+      "Absolute path to a Python interpreter (e.g. a venv's bin/python). The matching Jupyter controller id is computed automatically — no need to hash anything. Ignored if kernel_id is given."
     ),
   notebook_uri: NotebookUriSchema,
   response_format: ResponseFormatSchema
@@ -101,18 +108,24 @@ export function registerKernelTools(server: McpServer): void {
 
   server.tool(
     "notebook_select_kernel",
-    "Select a kernel for a notebook. With kernel_id, attempts to set it directly; without, opens the VS Code kernel picker for the user.",
+    "Select a kernel for a notebook. With kernel_id or python_path, attempts to set it directly; without either, opens the VS Code kernel picker for the user.",
     SelectKernelInput,
-    async ({ kernel_id, notebook_uri, response_format }) => {
+    async ({ kernel_id, python_path, notebook_uri, response_format }) => {
       const access = await resolveNotebook(notebook_uri);
       if (!access.allowed) return ErrorResult(`Error: ${access.error}`);
       const notebook = access.notebook!;
 
+      // Prefer an explicit kernel_id; otherwise derive the controller id from
+      // the interpreter path so callers never have to hash it themselves.
+      const effectiveKernelId =
+        kernel_id ??
+        (python_path ? controllerIdForInterpreter(python_path) : undefined);
+
       try {
-        if (kernel_id) {
+        if (effectiveKernelId) {
           await vscode.commands.executeCommand("notebook.selectKernel", {
             notebookEditor: { notebookUri: notebook.uri },
-            id: kernel_id,
+            id: effectiveKernelId,
             extension: JUPYTER_EXTENSION_ID
           });
         } else {
@@ -136,8 +149,9 @@ export function registerKernelTools(server: McpServer): void {
 
       const result = {
         notebookUri: notebook.uri.toString(),
-        requested: kernel_id ?? null,
-        mode: kernel_id ? "programmatic" : "picker",
+        requested: effectiveKernelId ?? null,
+        pythonPath: python_path ?? null,
+        mode: effectiveKernelId ? "programmatic" : "picker",
         connected: !!confirmed,
         language: confirmed?.language ?? null,
         status: confirmed?.status ?? null
@@ -147,8 +161,8 @@ export function registerKernelTools(server: McpServer): void {
         return TextResult(JSON.stringify(result, null, 2));
       }
       const lines = [`# Kernel Selection`, ""];
-      if (kernel_id) {
-        lines.push(`Attempted to select **${kernel_id}**.`);
+      if (effectiveKernelId) {
+        lines.push(`Attempted to select **${effectiveKernelId}**.`);
       } else {
         lines.push(`Opened the kernel picker for the user.`);
       }

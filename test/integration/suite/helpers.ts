@@ -1,8 +1,8 @@
-import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
+import { controllerIdForInterpreter } from "../../../src/utils/kernel.js";
 
 // __dirname after compile is out/test/integration/suite — go up four levels to repo root.
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
@@ -93,8 +93,7 @@ export async function selectVenvKernel(
   await ensureJupyterActivated();
   await registerVenvWithPythonExt(pythonPath);
 
-  const normalized = normalizeInterpreterPath(pythonPath);
-  const id = controllerIdForInterpreter(normalized);
+  const id = controllerIdForInterpreter(pythonPath);
 
   await vscode.commands.executeCommand("notebook.selectKernel", {
     notebookEditor: { notebookUri },
@@ -193,31 +192,4 @@ async function registerVenvWithPythonExt(pythonPath: string): Promise<void> {
   console.error(
     `[registerVenvWithPythonExt] active interpreter set to ${pythonPath}`
   );
-}
-
-function normalizeInterpreterPath(p: string): string {
-  // Mirror upstream's normalizer: for venv-style paths the "/bin" segment is
-  // stripped while the "python" filename is kept. So
-  //   /x/y/.venv/bin/python  ->  /x/y/.venv/python
-  // System paths like /usr/bin/python3 (4 segments) are left untouched.
-  const parts = p.split("/");
-  const last = parts[parts.length - 1] ?? "";
-  const second = parts[parts.length - 2] ?? "";
-  if (parts.length > 4 && last.startsWith("python") && second === "bin") {
-    return [...parts.slice(0, -2), last].join("/");
-  }
-  return p;
-}
-
-function controllerIdForInterpreter(normalizedPath: string): string {
-  // Format derived empirically by inspecting the IDs the Jupyter extension
-  // registers (see VS Code log "wanted kernel ... all: ..."). Format:
-  //   .jvsc74a57bd0<sha256(normPath)>.<normPath>.<normPath>.-m#ipykernel_launcher
-  // The Python version does NOT appear in the id for interpreter-backed
-  // kernels, despite some upstream docs implying otherwise.
-  const sha = crypto
-    .createHash("sha256")
-    .update(normalizedPath)
-    .digest("hex");
-  return `.jvsc74a57bd0${sha}.${normalizedPath}.${normalizedPath}.-m#ipykernel_launcher`;
 }
