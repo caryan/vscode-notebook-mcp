@@ -1,0 +1,12 @@
+[project]
+# A second kernel env that NO test registers with the Python extension on its
+# own. The step-2 kernel test points notebook_select_kernel at this venv's
+# interpreter to prove the tool itself makes a never-before-seen interpreter
+# usable — without anyone calling the Python extension's registration API first.
+# ipykernel is all that's needed to start a kernel.
+name = "vscode-notebook-mcp-test-kernel-unregistered"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "ipykernel>=7.2.0",
+]

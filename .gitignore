@@ -6,5 +6,6 @@ out/
 .DS_Store
 .claude/
 test/fixtures/python/.venv/
+test/fixtures/python-unregistered/.venv/
 end-to-end-test/.venv/
 end-to-end-test/test.ipynb

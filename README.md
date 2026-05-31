@@ -33,7 +33,7 @@ A VS Code extension that exposes the Jupyter notebooks in your VSCode editor to 
 | Tool | Description |
 |---|---|
 | `notebook_get_kernel_info` | Language, status, notebook URI |
-| `notebook_select_kernel` | Pop the picker, or attach a specific controller by `kernel_id` (see [Kernel selection](#kernel-selection)) |
+| `notebook_select_kernel` | Attach a kernel by `python_path` (interpreter path — no controller id or prior VS Code selection needed), or by `kernel_id`, or pop the picker (see [Kernel selection](#kernel-selection)) |
 
 All tools accept an optional `notebook_uri` (omitted → uses the active notebook editor) and `response_format` (`"markdown"` or `"json"`).
 
@@ -109,25 +109,28 @@ All tools accept an optional `notebook_uri` (omitted → uses the active noteboo
 
 ## Kernel selection
 
-`notebook_select_kernel` today is mostly a passthrough to VS Code's `notebook.selectKernel` command. Without a `kernel_id` it pops the kernel picker UI — fine when there's a human at the editor, useless to a headless agent. With a `kernel_id` it tries to attach the controller with that exact id.
+The agent-friendly way to attach a kernel is to give `notebook_select_kernel` a **`python_path`** — the absolute path to the interpreter you want (e.g. a venv's `bin/python`):
 
-The friction: **the Jupyter extension exposes no public API to enumerate or assign controllers, and controller ids for interpreter-backed Python kernels are derived strings the Jupyter extension computes internally**. There is also no standard "kernel id" an agent can be expected to know in advance — the format depends on the kernel source (kernelspec vs. interpreter) and includes a hash of the interpreter path. Empirically (verified by reading VS Code's "wanted kernel … all: …" log line) the format for an interpreter-backed kernel is:
-
-```
-.jvsc74a57bd0<sha256(normalizedInterpreterPath)>.<normPath>.<normPath>.-m#ipykernel_launcher
+```jsonc
+notebook_select_kernel({ "python_path": "/abs/path/to/.venv/bin/python" })
 ```
 
-Where `normalizedInterpreterPath` strips just the `bin/` segment of a venv path while keeping the `python` filename — so `/x/y/.venv/bin/python` becomes `/x/y/.venv/python` (system paths like `/usr/bin/python3` are left untouched). See `getKernelId` and `getInterpreterKernelSpecName` in [microsoft/vscode-jupyter](https://github.com/microsoft/vscode-jupyter/blob/main/src/kernels/helpers.ts).
+You don't have to know any controller id, and the interpreter doesn't have to be one you've already selected in VS Code — the tool does both the discovery and the id computation for you. (`kernel_id` is still accepted for the rare case you already hold a controller id; without either argument the tool falls back to popping VS Code's kernel picker, which is useless to a headless agent.)
 
-**What the integration test suite does today.** The test helper `selectVenvKernel` at `test/integration/suite/helpers.ts` (a) tells the Python extension to mark the venv as the active interpreter so the Jupyter extension creates a controller for it, then (b) constructs the controller id from the normalized path, then (c) dispatches `notebook.selectKernel`. Brittle to upstream changes in the Jupyter extension, but it works and is documented in code. If a future Jupyter version changes the format, the failure mode is informative — VS Code logs both the requested id and the available ones (`wanted kernel DOES NOT EXIST, wanted: <id>, all: <ids>`) so the new format can be reverse-engineered the same way.
+Under the hood this navigates two pieces of friction — **the Jupyter extension exposes no public API to enumerate or assign controllers, and controller ids for interpreter-backed Python kernels are derived strings it computes internally**:
 
-**Where this is heading.** The intent is to make this an MCP tool — something like `notebook_attach_python_kernel({ python_path })` — so an agent can say "use this venv" without having to know any controller id. Implementation plan: take an interpreter path, normalize it, probe the version, compute the controller id, dispatch `notebook.selectKernel`, and confirm via `kernels.getKernel(uri)`. Same logic as the test helper, exposed as a tool. Open questions before that lands:
+1. **No controller until the interpreter is known.** A venv you've never selected in VS Code has no controller to bind to. Given `python_path`, the tool registers the interpreter with the Python extension first (`registerInterpreter` in `src/utils/pythonEnv.ts`: refresh discovery, resolve the path, set it active for the workspace) so Jupyter creates one — the same thing "Python: Select Interpreter → Enter interpreter path…" would do, done programmatically.
+2. **Computing the id.** The controller id is built from the interpreter path (`controllerIdForInterpreter` in `src/utils/kernel.ts`). Empirically (verified by reading VS Code's "wanted kernel … all: …" log line) the format for an interpreter-backed kernel is:
 
-- Should it accept other forms of "kernel" too (a global kernelspec name, a remote Jupyter server URL)?
-- How should it report failure (controller not registered yet, version mismatch, picker fallback)?
-- What happens when the upstream id format changes — fall back to popping the picker, or surface a clear error?
+   ```
+   .jvsc74a57bd0<sha256(normalizedInterpreterPath)>.<normPath>.<normPath>.-m#ipykernel_launcher
+   ```
 
-If you want to push this along, the helper code in `test/integration/suite/helpers.ts` is a good starting point.
+   Where `normalizedInterpreterPath` strips just the `bin/` segment of a venv path while keeping the `python` filename — so `/x/y/.venv/bin/python` becomes `/x/y/.venv/python` (system paths like `/usr/bin/python3` are left untouched). See `getKernelId` and `getInterpreterKernelSpecName` in [microsoft/vscode-jupyter](https://github.com/microsoft/vscode-jupyter/blob/main/src/kernels/helpers.ts).
+
+The controller lands a beat after the interpreter becomes known, so the tool retries `notebook.selectKernel` for a few seconds (`selectKernelById`) rather than firing once and risking a silent no-op. This is brittle to upstream changes in the Jupyter extension, but the failure mode is informative — VS Code logs both the requested id and the available ones (`wanted kernel DOES NOT EXIST, wanted: <id>, all: <ids>`) so a changed format can be reverse-engineered the same way. The integration suite exercises the full path (including a brand-new, never-registered venv) in `test/integration/suite/kernel.test.ts`.
+
+Still open / not yet handled: other forms of "kernel" (a global kernelspec name, a remote Jupyter server URL), and version probing of the interpreter.
 
 ## Development
 

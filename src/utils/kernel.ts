@@ -1,4 +1,7 @@
 import * as crypto from "crypto";
+import * as vscode from "vscode";
+
+const JUPYTER_EXTENSION_ID = "ms-toolsai.jupyter";
 
 /**
  * Normalize an interpreter path the way the Jupyter extension does before it
@@ -32,4 +35,31 @@ export function controllerIdForInterpreter(pythonPath: string): string {
   const normalized = normalizeInterpreterPath(pythonPath);
   const sha = crypto.createHash("sha256").update(normalized).digest("hex");
   return `.jvsc74a57bd0${sha}.${normalized}.${normalized}.-m#ipykernel_launcher`;
+}
+
+/**
+ * Bind a controller to a notebook via the `notebook.selectKernel` command,
+ * retrying because the command silently no-ops when the controller doesn't
+ * exist yet. For a freshly registered interpreter the Jupyter extension creates
+ * the controller a beat after the interpreter becomes known, so a single select
+ * can fire too early and never bind — leaving the next cell execution to pop the
+ * kernel picker. Re-issuing the select on an interval guarantees one attempt
+ * lands once the controller is live.
+ */
+export async function selectKernelById(
+  notebookUri: vscode.Uri,
+  kernelId: string,
+  attempts = 1,
+  intervalMs = 600
+): Promise<void> {
+  for (let i = 0; i < Math.max(1, attempts); i++) {
+    await vscode.commands.executeCommand("notebook.selectKernel", {
+      notebookEditor: { notebookUri },
+      id: kernelId,
+      extension: JUPYTER_EXTENSION_ID
+    });
+    if (i < attempts - 1) {
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+  }
 }

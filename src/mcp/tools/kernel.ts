@@ -6,7 +6,11 @@ import {
   NotebookUriSchema
 } from "../../schemas/index.js";
 import { resolveNotebook } from "../../utils/notebook.js";
-import { controllerIdForInterpreter } from "../../utils/kernel.js";
+import {
+  controllerIdForInterpreter,
+  selectKernelById
+} from "../../utils/kernel.js";
+import { registerInterpreter } from "../../utils/pythonEnv.js";
 
 const TextResult = (text: string) =>
   ({ content: [{ type: "text" as const, text }] });
@@ -122,12 +126,29 @@ export function registerKernelTools(server: McpServer): void {
         (python_path ? controllerIdForInterpreter(python_path) : undefined);
 
       try {
+        // Make the Python extension aware of the interpreter first, so a venv
+        // the user has never selected in VS Code still gets a controller to
+        // bind to. Best effort: if it fails we still try to select by id.
+        if (python_path) {
+          try {
+            await registerInterpreter(python_path);
+          } catch (err) {
+            console.error(
+              `[notebook_select_kernel] could not register interpreter ${python_path}: ${
+                err instanceof Error ? err.message : String(err)
+              }`
+            );
+          }
+        }
+
         if (effectiveKernelId) {
-          await vscode.commands.executeCommand("notebook.selectKernel", {
-            notebookEditor: { notebookUri: notebook.uri },
-            id: effectiveKernelId,
-            extension: JUPYTER_EXTENSION_ID
-          });
+          // When we just registered a fresh interpreter, the controller may
+          // appear a beat after selection — retry so the bind isn't lost.
+          await selectKernelById(
+            notebook.uri,
+            effectiveKernelId,
+            python_path ? 10 : 1
+          );
         } else {
           await vscode.commands.executeCommand("notebook.selectKernel", {
             notebookEditor: { notebookUri: notebook.uri }

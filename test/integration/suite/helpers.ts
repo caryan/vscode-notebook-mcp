@@ -3,9 +3,10 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 import { controllerIdForInterpreter } from "../../../src/utils/kernel.js";
+import { registerInterpreter } from "../../../src/utils/pythonEnv.js";
 
 // __dirname after compile is out/test/integration/suite — go up four levels to repo root.
-const REPO_ROOT = path.resolve(__dirname, "../../../..");
+export const REPO_ROOT = path.resolve(__dirname, "../../../..");
 const FIXTURES = path.join(REPO_ROOT, "test/fixtures/workspace/notebooks");
 
 export function fixturePath(name: string): string {
@@ -146,50 +147,10 @@ export async function startKernel(notebookUri: vscode.Uri): Promise<void> {
 
 /**
  * Make sure the Python extension knows about the venv and treats it as the
- * active interpreter for the workspace. Without this step the Jupyter
- * extension never creates a NotebookController for the venv, so
- * `notebook.selectKernel` with any id we construct can't bind to anything.
+ * active interpreter for the workspace. Delegates to the same
+ * `registerInterpreter` that `notebook_select_kernel` now uses in production,
+ * so the helper and the shipped tool can't drift apart.
  */
 async function registerVenvWithPythonExt(pythonPath: string): Promise<void> {
-  const ext = vscode.extensions.getExtension("ms-python.python");
-  if (!ext) {
-    throw new Error(
-      "ms-python.python extension is not installed in the test VS Code"
-    );
-  }
-  if (!ext.isActive) {
-    await ext.activate();
-  }
-  const api = ext.exports as {
-    environments?: {
-      updateActiveEnvironmentPath?: (
-        path: string,
-        scope?: vscode.WorkspaceFolder
-      ) => Promise<void>;
-      resolveEnvironment?: (
-        path: string
-      ) => Promise<unknown>;
-      known?: { path: string }[];
-      refreshEnvironments?: () => Promise<void>;
-    };
-  };
-  if (!api.environments) {
-    return;
-  }
-  try {
-    await api.environments.refreshEnvironments?.();
-  } catch {
-    // best effort
-  }
-  try {
-    await api.environments.resolveEnvironment?.(pythonPath);
-  } catch {
-    // best effort
-  }
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  await api.environments.updateActiveEnvironmentPath?.(pythonPath, folder);
-  // eslint-disable-next-line no-console
-  console.error(
-    `[registerVenvWithPythonExt] active interpreter set to ${pythonPath}`
-  );
+  await registerInterpreter(pythonPath);
 }
